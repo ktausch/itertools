@@ -5199,15 +5199,12 @@ pub trait Itertools: Iterator {
 
     /// Computes the duration of each call to `next()` and yields it alongside
     /// each element. The first time the input iterator returns None from
-    /// `next()`, the duration is also computed and returned. This has two
-    /// consequences:
-    /// - The Item type of the timed iterator contains an extra option, i.e.
-    ///   the `Item` associated type is `(Option<I::Item>, Duration)`.
-    /// - For finite iterators, the timed iterator always yields one more
-    ///   element than the input iterator. Since this makes the iterator
-    ///   longer, we don't implement the `ExactSizeIterator` trait even if
-    ///   the input iterator does.
-    /// 
+    /// `next()`, the duration is computed and can be accessed via
+    /// [`TimedIterator::none_time()`].
+    ///
+    /// If the input iterator is `ExactSizeIterator`, then this iterator is also
+    /// `ExactSizeIterator`.
+    ///
     /// Note that this iterator implicitly assumes that its input is fused
     /// (see [`std::iter::FusedIterator`] for details). Once the consumed
     /// iterator's `next()` method returns `None`, it is never called again.
@@ -5236,17 +5233,20 @@ pub trait Itertools: Iterator {
     ///             Some(())
     ///         }
     ///     }
+    ///     fn size_hint(&self) -> (usize, Option<usize>) {
+    ///         let len = if self.yielded_yet { 0 } else { 1 };
+    ///         (len, Some(len))
+    ///     }
     /// }
+    /// impl ExactSizeIterator for YieldsOnce {}
     /// let iter = YieldsOnce{yielded_yet: false};
-    /// let iter = iter.timed();
-    /// let results: Vec<(Option<()>, Duration)> = iter.collect();
-    /// assert_eq!(results.len(), 2);
-    /// let (first_value, first_duration) = results[0];
-    /// assert_eq!(first_value, Some(()));
-    /// assert!(first_duration >= Duration::from_micros(1));
-    /// let (second_value, second_duration) = results[1];
-    /// assert_eq!(second_value, None);
-    /// assert!(second_duration >= Duration::from_micros(2));
+    /// let mut iter = iter.timed();
+    /// assert_eq!(iter.len(), 1);
+    /// let ((), duration) = iter.next().unwrap();
+    /// assert!(duration >= Duration::from_micros(1));
+    /// assert_eq!(iter.none_time(), None);
+    /// assert_eq!(iter.next(), None);
+    /// assert!(iter.none_time().unwrap() >= Duration::from_micros(2));
     /// ```
     #[cfg(feature = "use_std")]
     fn timed(self) -> TimedIterator<Self> where Self: Sized {

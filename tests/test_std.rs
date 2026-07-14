@@ -1691,14 +1691,13 @@ fn timed_empty() {
             (0, Some(0))
         }
     }
+    impl ExactSizeIterator for EmptyIterator {}
     let mut iter = EmptyIterator.timed();
-    assert_eq!(iter.size_hint(), (1, Some(1)));
-    let (item, duration) = iter.next().unwrap();
-    assert_eq!(item, None);
-    assert!(duration.as_micros() >= 1);
-    assert_eq!(iter.size_hint(), (0, Some(0)));
+    assert_eq!(iter.len(), 0);
+    assert_eq!(iter.none_time(), None);
     assert_eq!(iter.next(), None);
-    assert_eq!(iter.size_hint(), (0, Some(0)));
+    assert!(iter.none_time().unwrap() > Duration::from_micros(1));
+    assert_eq!(iter.len(), 0);
 }
 
 #[test]
@@ -1720,7 +1719,7 @@ fn timed_infinite() {
     for cur in 0..100 {
         assert_eq!(iter.size_hint(), (usize::MAX, None));
         let (item, duration) = iter.next().unwrap();
-        assert_eq!(item.unwrap(), cur);
+        assert_eq!(item, cur);
         assert!(duration.as_micros() >= 1);
     }
 }
@@ -1747,18 +1746,22 @@ fn timed_finite() {
             (self.0, Some(self.0))
         }
     }
+    impl ExactSizeIterator for MockIterator {}
     let mut iter = MockIterator(4).timed();
     for cur in (0..4).rev() {
-        assert_eq!(iter.size_hint(), (cur + 2, Some(cur + 2)));
+        assert_eq!(iter.len(), cur + 1);
+        assert_eq!(iter.none_time(), None);
         let (item, duration) = iter.next().unwrap();
-        assert_eq!(item.unwrap(), cur);
-        assert!(duration >= Duration::from_micros((cur as u64) + 1));
+        assert_eq!(item, cur);
+        assert!(duration >= Duration::from_micros(cur as u64));
     }
-    assert_eq!(iter.size_hint(), (1, Some(1)));
-    let (item, duration) = iter.next().unwrap();
-    assert!(item.is_none());
-    assert!(duration >= Duration::from_micros(10));
-    assert!(iter.next().is_none());
+    assert_eq!(iter.len(), 0);
+    assert_eq!(iter.none_time(), None);
+    assert_eq!(iter.next(), None);
+    let none_time = iter.none_time().unwrap();
+    assert!(none_time >= Duration::from_micros(10));
+    assert_eq!(iter.next(), None);
+    assert_eq!(iter.none_time().unwrap(), none_time);
 }
 
 #[test]
@@ -1780,22 +1783,29 @@ fn timed_unfused_iterator() {
             result
         }
     }
+    fn borrowed_collect_vec<T, I: Iterator<Item = T>>(iter: &mut I) -> Vec<T> {
+        let mut result = Vec::with_capacity(1);
+        result.extend(iter);
+        result
+    }
     let mut iter = MockIterator(3);
-    let first = (&mut iter).timed().collect::<Vec<_>>();
-    let second = (&mut iter).timed().collect::<Vec<_>>();
-    let third = (&mut iter).timed().collect::<Vec<_>>();
-    assert_eq!(first.len(), 2);
-    assert_eq!(first[0].0, Some(3));
-    assert!(first[0].1 > Duration::from_micros(1));
-    assert_eq!(first[1].0, None);
-    assert!(first[1].1 > Duration::from_micros(2));
-    assert_eq!(second.len(), 2);
-    assert_eq!(second[0].0, Some(1));
-    assert!(second[0].1 > Duration::from_micros(1));
-    assert_eq!(second.len(), 2);
-    assert_eq!(second[1].0, None);
-    assert!(second[1].1 > Duration::from_micros(2));
-    assert_eq!(third.len(), 1);
-    assert_eq!(third[0].0, None);
-    assert!(third[0].1 > Duration::from_micros(2));
+    let mut first_iter = (&mut iter).timed();
+    assert_eq!(first_iter.none_time(), None);
+    let first_results = borrowed_collect_vec(&mut first_iter);
+    assert_eq!(first_results.len(), 1);
+    assert_eq!(first_results[0].0, 3);
+    assert!(first_results[0].1 > Duration::from_micros(1));
+    assert!(first_iter.none_time().unwrap() >= Duration::from_micros(2));
+    let mut second_iter = (&mut iter).timed();
+    assert_eq!(second_iter.none_time(), None);
+    let second_results = borrowed_collect_vec(&mut second_iter);
+    assert_eq!(second_results.len(), 1);
+    assert_eq!(second_results[0].0, 1);
+    assert!(second_results[0].1 > Duration::from_micros(1));
+    assert!(second_iter.none_time().unwrap() > Duration::from_micros(2));
+    let mut third_iter = (&mut iter).timed();
+    assert_eq!(third_iter.none_time(), None);
+    let third_results = borrowed_collect_vec(&mut third_iter);
+    assert!(third_results.is_empty());
+    assert!(third_iter.none_time().unwrap() > Duration::from_micros(2));
 }

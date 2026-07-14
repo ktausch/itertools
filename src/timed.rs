@@ -8,7 +8,7 @@ use std::{iter::FusedIterator, time::{Duration, Instant}};
 #[derive(Debug, Clone)]
 pub struct TimedIterator<I> {
     iter: I,
-    exhausted: bool,
+    none_time: Option<Duration>,
 }
 
 impl<I: Iterator> TimedIterator<I> {
@@ -17,43 +17,42 @@ impl<I: Iterator> TimedIterator<I> {
     pub fn new(iter: I) -> Self {
         Self {
             iter,
-            exhausted: false,
+            none_time: None,
         }
+    }
+
+    /// If the inner iterator has returned `None`, then retrieve the time it
+    /// took for that call to `next()`; otherwise return `None`. Note that
+    /// this is unambiguous because once the inner iterator returns `None`
+    /// once, it is never called again.
+    pub fn none_time(&self) -> Option<Duration> {
+        self.none_time
     }
 }
 
 impl<I: Iterator> Iterator for TimedIterator<I> {
-    type Item = (Option<I::Item>, Duration);
+    type Item = (I::Item, Duration);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.exhausted {
-            None
-        } else {
+        if self.none_time.is_none() {
             let start = Instant::now();
             let item = self.iter.next();
             let duration = start.elapsed();
-            self.exhausted = item.is_none();
-            Some((item, duration))
+            if let Some(item) = item {
+                Some((item, duration))
+            } else {
+                self.none_time = Some(duration);
+                None
+            }
+        } else {
+            None
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.exhausted {
-            (0, Some(0))
-        } else {
-            let (lower_limit, upper_limit) = self.iter.size_hint();
-            let lower_limit = match lower_limit {
-                usize::MAX => usize::MAX,
-                lower_limit => lower_limit + 1,
-            };
-            let upper_limit = match upper_limit {
-                None => None,
-                Some(usize::MAX) => None,
-                Some(upper_limit) => Some(upper_limit + 1),
-            };
-            (lower_limit, upper_limit)
-        }
+        self.iter.size_hint()
     }
 }
 
 impl<I: Iterator> FusedIterator for TimedIterator<I> {}
+impl<I: ExactSizeIterator> ExactSizeIterator for TimedIterator<I> {}
